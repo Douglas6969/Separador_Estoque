@@ -1,6 +1,8 @@
 import bcryptjs from 'bcryptjs'
 import { usuarioModel } from "../models/users.model.js";
 import jwt from 'jsonwebtoken'
+import { authController } from '../controllers/auth.controller.js'; // Importa a função de login na Sankhya
+
 
 
 
@@ -46,47 +48,59 @@ const register = async(req, res)=>{
 }
 
 // /api/v1/users/register/login
-const login = async(req, res)=>{
-    try{
-            const {ds_usuario,ds_senha}= req.body
+const login = async (req, res) => {
+    try {
+        const { ds_usuario, ds_senha } = req.body;
 
-          
-            if(!ds_usuario || !ds_senha){
-                return res
-                .status(400)
-                .json({error: "campos em branco: usuario, senha "});
-            }
+        if (!ds_usuario || !ds_senha) {
+            return res.status(400).json({ error: "Campos em branco: usuário, senha" });
+        }
 
-            const user = await usuarioModel.findOneByUsuario(ds_usuario)
-            if(!user){
-                return res.status(404).json({error:"usuario não encontrado"});
-            }
+        // 1️⃣ Verifica se o usuário existe no banco
+        const user = await usuarioModel.findOneByUsuario(ds_usuario);
+        if (!user) {
+            return res.status(404).json({ error: "Usuário não encontrado" });
+        }
 
-            const isMatch = await   bcryptjs.compare(ds_senha, user.ds_senha)
+        // 2️⃣ Compara a senha
+        const isMatch = await bcryptjs.compare(ds_senha, user.ds_senha);
+        if (!isMatch) {
+            return res.status(401).json({ error: "Credenciais inválidas" });
+        }
 
-            if(!isMatch){
-                return res.status(404).json({error:"credenciais invalidas"});
-            }
-
-            //jwt segurança revisar mais tarde
-            const token = jwt.sign({ds_usuario: user.ds_usuario },
+        // 3️⃣ Gera o JWT local
+        const token = jwt.sign(
+            { ds_usuario: user.ds_usuario },
             process.env.JWT_SECRET,
-            //expira token 
-            {
-                expiresIn:"1h"
-            }   
-        )
+            { expiresIn: "1h" } // Token local expira em 1 hora
+        );
 
-        return res.json({ ok: true, msg:token})
+        // 4️⃣ Faz login na Sankhya
+        let bearerToken;
+        try {
+            bearerToken = await authController.loginToSankhya();
+        } catch (err) {
+            console.error("Erro ao autenticar na Sankhya:", err);
+            return res.status(500).json({ error: "Erro ao autenticar na Sankhya" });
+        }
 
-    }catch(error){
-        console.log(error)
+        // 5️⃣ Retorna os tokens (local + Sankhya)
+        return res.json({
+            ok: true,
+            msg: "Login realizado com sucesso",
+            token,         // Token JWT local
+            bearerToken    // Token da Sankhya
+        });
+
+    } catch (error) {
+        console.error(error);
         return res.status(500).json({
-            ok:false,
-            meg:'error serve'
-        })
+            ok: false,
+            msg: "Erro no servidor"
+        });
     }
 }
+
 const deletar = async (req, res) => {
     try {
         const { id_usuario } = req.body;
